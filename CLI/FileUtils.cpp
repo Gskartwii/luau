@@ -59,6 +59,7 @@ std::optional<std::string> readFile(const std::string& name)
     long length = ftell(file);
     if (length < 0)
     {
+        perror("ftell");
         fclose(file);
         return std::nullopt;
     }

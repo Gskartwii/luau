@@ -39,7 +39,8 @@ enum class CliMode
     Unknown,
     Repl,
     Compile,
-    RunSourceFiles
+    RunSourceFiles,
+    RunBinaryFiles
 };
 
 enum class CompileFormat
@@ -582,7 +583,7 @@ static void runRepl()
 }
 
 // `repl` is used it indicate if a repl should be started after executing the file.
-static bool runFile(const char* name, lua_State* GL, bool repl)
+static bool runFile(const char* name, lua_State* GL, bool repl, bool binary)
 {
     std::optional<std::string> source = readFile(name);
     if (!source)
@@ -599,7 +600,16 @@ static bool runFile(const char* name, lua_State* GL, bool repl)
 
     std::string chunkname = "=" + std::string(name);
 
-    std::string bytecode = Luau::compile(*source, copts());
+    std::string bytecode;
+    if (!binary)
+    {
+        bytecode = Luau::compile(*source, copts());
+    }
+    else
+    {
+        bytecode = *source;
+    }
+
     int status = 0;
 
     if (luau_load(L, chunkname.c_str(), bytecode.data(), bytecode.size(), 0) == 0)
@@ -770,6 +780,10 @@ int replMain(int argc, char** argv)
             fprintf(stderr, "Error: Unrecognized value for '--compile' specified.\n");
             return 1;
         }
+    } else if (argc >= 2 && strcmp(argv[1], "--loadbin") == 0)
+    {
+        argStart++;
+        mode = CliMode::RunBinaryFiles;
     }
 
     for (int i = argStart; i < argc; i++)
@@ -884,7 +898,7 @@ int replMain(int argc, char** argv)
         for (size_t i = 0; i < files.size(); ++i)
         {
             bool isLastFile = i == files.size() - 1;
-            failed += !runFile(files[i].c_str(), L, interactive && isLastFile);
+            failed += !runFile(files[i].c_str(), L, interactive && isLastFile, false);
         }
 
         if (profile)
@@ -895,6 +909,23 @@ int replMain(int argc, char** argv)
 
         if (coverage)
             coverageDump("coverage.out");
+
+        return failed ? 1 : 0;
+    }
+    case CliMode::RunBinaryFiles:
+    {
+        std::unique_ptr<lua_State, void (*)(lua_State*)> globalState(luaL_newstate(), lua_close);
+        lua_State* L = globalState.get();
+
+        setupState(L);
+
+        int failed = 0;
+
+        for (size_t i = 0; i < files.size(); ++i)
+        {
+            bool isLastFile = i == files.size() - 1;
+            failed += !runFile(files[i].c_str(), L, interactive && isLastFile, true);
+        }
 
         return failed ? 1 : 0;
     }
